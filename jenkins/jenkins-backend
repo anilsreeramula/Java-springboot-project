@@ -69,7 +69,7 @@ pipeline {
                   --name ${CONTAINER_NAME} \
                   --restart always \
                   -p 8084:8084 \
-                  -e MYSQL_HOST=database-1.c8lweogi44to.us-east-1.rds.amazonaws.com \
+                  -e MYSQL_HOST=database-1.cv82oiyqk7bx.ca-central-1.rds.amazonaws.com \
                   -e MYSQL_PORT=3306 \
                   -e MYSQL_USERNAME=admin \
                   -e MYSQL_PASSWORD=Cloud123 \
