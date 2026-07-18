@@ -3,13 +3,13 @@ pipeline {
 
     environment {
         AWS_REGION      = "ca-central-1"
-        AWS_ACCOUNT_ID  = "341221860475"
+        AWS_ACCOUNT_ID  = "835671582299"
 
-        ECR_REPO        = "backend"
+        ECR_REPO        = "mybackend"
         IMAGE_TAG       = "${BUILD_NUMBER}"
         IMAGE_URI       = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
 
-        CONTAINER_NAME  = "backend"
+        CONTAINER_NAME  = "mybackend"
         CONTAINER_PORT  = "8084"
     }
 
@@ -24,7 +24,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 git branch: 'main',
-                    url: 'https://github.com/CloudTechDevOps/Java-springboot-project.git'
+                    url: 'https://github.com/anilsreeramula/Java-springboot-project.git'
             }
         }
 
@@ -69,7 +69,7 @@ pipeline {
                   --name ${CONTAINER_NAME} \
                   --restart always \
                   -p 8084:8084 \
-                  -e MYSQL_HOST=database-1.c8lweogi44to.us-east-1.rds.amazonaws.com \
+                  -e MYSQL_HOST=database-1.c8lweogi44to.ca-central-1.rds.amazonaws.com \
                   -e MYSQL_PORT=3306 \
                   -e MYSQL_USERNAME=admin \
                   -e MYSQL_PASSWORD=Cloud123 \
