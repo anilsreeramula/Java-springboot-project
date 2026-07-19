@@ -62,5 +62,4 @@ jobs:
           ssh -o StrictHostKeyChecking=no \
           -i key.pem \
           ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
-          "~/deploy/deploy.sh $IMAGE_TAG"name: Backend CI/CD
-
+          "~/deploy/deploy.sh $IMAGE_TAG"
