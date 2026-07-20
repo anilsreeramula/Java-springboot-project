@@ -88,10 +88,12 @@ jobs:
 
       - name: Create SSH key
         run: |
-             cat << 'EOF' > key.pem
-             ${{ secrets.EC2_SSH_KEY }}
-              EOF
-              chmod 400 key.pem  
+          cat << 'EOF' > key.pem
+          ${{ secrets.EC2_SSH_KEY }}
+          EOF
+
+          chmod 600 key.pem
+          ls -l key.pem
 
       ####################################
       # Deploy
