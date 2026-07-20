@@ -1,65 +1,122 @@
 name: Backend CI/CD
 
 on:
-  workflow_dispatch:
-
-permissions:
-  id-token: write
-  contents: read
+  push:
+    branches:
+      - main
 
 env:
   AWS_REGION: ca-central-1
   AWS_ACCOUNT_ID: 835671582299
-  ECR_REPO: mybackendgithubactions
-  IMAGE_TAG: ${{ github.run_number }}
+
+  ECR_REPO: mybackend
 
 jobs:
-
   deploy:
 
     runs-on: ubuntu-latest
 
     steps:
 
-      - uses: actions/checkout@v4
+    - name: Checkout Code
+      uses: actions/checkout@v4
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::835671582299:role/githubactions
-          aws-region: ca-central-1
+    ##########################################################
+    # Configure AWS
+    ##########################################################
 
-      - name: Login to ECR
-        run: |
-          aws ecr get-login-password --region $AWS_REGION | \
-          docker login \
-          --username AWS \
-          --password-stdin \
-          $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
 
-      - name: Build Docker Image
-        working-directory: backend
-        run: |
-          docker build \
-          -t $ECR_REPO:$IMAGE_TAG .
+    ##########################################################
+    # Login to Amazon ECR
+    ##########################################################
 
-          docker tag \
-          $ECR_REPO:$IMAGE_TAG \
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    ##########################################################
+    # Build Docker Image
+    ##########################################################
+
+    - name: Build Docker Image
+      working-directory: backend
+      run: |
+        IMAGE_TAG=${{ github.run_number }}
+
+        docker build \
+        -t $ECR_REPO:$IMAGE_TAG .
+
+        docker tag \
+        $ECR_REPO:$IMAGE_TAG \
+        $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
+
+    ##########################################################
+    # Push Image
+    ##########################################################
+
+    - name: Push Docker Image
+      run: |
+        IMAGE_TAG=${{ github.run_number }}
+
+        docker push \
+        $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
+
+    ##########################################################
+    # Copy SSH Key
+    ##########################################################
+
+    - name: Create SSH Key
+      run: |
+        echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
+        chmod 400 key.pem
+
+    ##########################################################
+    # Deploy to EC2
+    ##########################################################
+
+    - name: Deploy to EC2
+      run: |
+
+        IMAGE_TAG=${{ github.run_number }}
+
+        ssh -o StrictHostKeyChecking=no \
+        -i key.pem \
+        ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
+
+        aws ecr get-login-password --region $AWS_REGION | \
+        docker login \
+        --username AWS \
+        --password-stdin \
+        $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
+        docker stop mybackend_multi_stage || true
+        docker rm mybackend_multi_stage || true
+
+        docker pull \
+        $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
+
+        docker run -d \
+          --name mybackend_multi_stage \
+          --restart always \
+          -p 8084:8084 \
+          -e MYSQL_HOST=database-1.cv82oiyqk7bx.ca-central-1.rds.amazonaws.com \
+          -e MYSQL_PORT=3306 \
+          -e MYSQL_USERNAME=admin \
+          -e MYSQL_PASSWORD=Cloud123 \
           $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
 
-      - name: Push Docker Image
-        run: |
-          docker push \
-          $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
+        sleep 20
 
-      - name: Copy SSH Key
-        run: |
-          echo "${{ secrets.EC2_KEY }}" > key.pem
-          chmod 400 key.pem
+        curl http://localhost:8084/actuator/health
 
-      - name: Deploy to EC2
-        run: |
-          ssh -o StrictHostKeyChecking=no \
-          -i key.pem \
-          ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
-          "~/backend/deploy.sh $IMAGE_TAG"
+        docker ps -a
+
+        docker images | head
+
+        EOF
