@@ -1,123 +1,132 @@
-name: Backend CI/CD
+name: Backend CI/CD using OIDC
 
 on:
-    # push:
-    # branches:
-    # - main
-   workflow_dispatch:
+  # push:
+  #   branches:
+  #     - main
+    workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
 
 env:
   AWS_REGION: ca-central-1
   AWS_ACCOUNT_ID: 835671582299
-
-  ECR_REPO: mybackend
+  ECR_REPO: mybackend_multi_stage
 
 jobs:
+
   deploy:
 
     runs-on: ubuntu-latest
 
     steps:
 
-    - name: Checkout Code
-      uses: actions/checkout@v4
+      ####################################
+      # Checkout
+      ####################################
 
-    ##########################################################
-    # Configure AWS
-    ##########################################################
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
+      ####################################
+      # Configure AWS using OIDC
+      ####################################
 
-    ##########################################################
-    # Login to Amazon ECR
-    ##########################################################
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::835671582299:role/OIDC_github_role
+          aws-region: ca-central-1
 
-    - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v2
+      ####################################
+      # Login to Amazon ECR
+      ####################################
 
-    ##########################################################
-    # Build Docker Image
-    ##########################################################
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
 
-    - name: Build Docker Image
-      working-directory: backend
-      run: |
-        IMAGE_TAG=${{ github.run_number }}
+      ####################################
+      # Build Image
+      ####################################
 
-        docker build \
-        -t $ECR_REPO:$IMAGE_TAG .
+      - name: Build Docker Image
+        working-directory: backend
+        run: |
 
-        docker tag \
-        $ECR_REPO:$IMAGE_TAG \
-        $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
+          IMAGE_TAG=${{ github.run_number }}
 
-    ##########################################################
-    # Push Image
-    ##########################################################
+          docker build \
+          -t $ECR_REPO:$IMAGE_TAG .
 
-    - name: Push Docker Image
-      run: |
-        IMAGE_TAG=${{ github.run_number }}
-
-        docker push \
-        $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
-
-    ##########################################################
-    # Copy SSH Key
-    ##########################################################
-
-    - name: Create SSH Key
-      run: |
-        echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
-        chmod 400 key.pem
-
-    ##########################################################
-    # Deploy to EC2
-    ##########################################################
-
-    - name: Deploy to EC2
-      run: |
-
-        IMAGE_TAG=${{ github.run_number }}
-
-        ssh -o StrictHostKeyChecking=no \
-        -i key.pem \
-        ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
-
-        aws ecr get-login-password --region $AWS_REGION | \
-        docker login \
-        --username AWS \
-        --password-stdin \
-        $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-
-        docker stop mybackend_multi_stage || true
-        docker rm mybackend_multi_stage || true
-
-        docker pull \
-        $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
-
-        docker run -d \
-          --name mybackend_multi_stage \
-          --restart always \
-          -p 8084:8084 \
-          -e MYSQL_HOST=database-1.cv82oiyqk7bx.ca-central-1.rds.amazonaws.com \
-          -e MYSQL_PORT=3306 \
-          -e MYSQL_USERNAME=admin \
-          -e MYSQL_PASSWORD=Cloud123 \
+          docker tag \
+          $ECR_REPO:$IMAGE_TAG \
           $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
 
-        sleep 20
+      ####################################
+      # Push Image
+      ####################################
 
-        curl http://localhost:8084/actuator/health
+      - name: Push Docker Image
+        run: |
 
-        docker ps -a
+          IMAGE_TAG=${{ github.run_number }}
 
-        docker images | head
+          docker push \
+          $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
 
-        EOF
+      ####################################
+      # Create SSH Key
+      ####################################
+
+      - name: Create SSH Key
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
+          chmod 400 key.pem
+
+      ####################################
+      # Deploy
+      ####################################
+
+      - name: Deploy to EC2
+        run: |
+
+          IMAGE_TAG=${{ github.run_number }}
+
+          ssh -o StrictHostKeyChecking=no \
+          -i key.pem \
+          ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
+
+          aws ecr get-login-password --region ca-central-1 | \
+          docker login \
+          --username AWS \
+          --password-stdin \
+          835671582299.dkr.ecr.ca-central-1.amazonaws.com
+
+          docker stop mybackend_multi_stage || true
+
+          docker rm mybackend_multi_stage || true
+
+          docker pull \
+          835671582299.dkr.ecr.ca-central-1.amazonaws.com/mybackend_multi_stage:$IMAGE_TAG
+
+          docker run -d \
+            --name mybackend_multi_stage \
+            --restart always \
+            -p 8084:8084 \
+            -e MYSQL_HOST=database-1.cv82oiyqk7bx.ca-central-1.rds.amazonaws.com \
+            -e MYSQL_PORT=3306 \
+            -e MYSQL_USERNAME=admin \
+            -e MYSQL_PASSWORD=Cloud123 \
+            835671582299.dkr.ecr.ca-central-1.amazonaws.com/mybackend_multi_stage:$IMAGE_TAG
+
+          sleep 20
+
+          curl http://localhost:8084/actuator/health
+
+          docker ps -a
+
+          docker images | head
+
+          EOF
